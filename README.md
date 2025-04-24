@@ -1,17 +1,44 @@
-# Energy Meter - MQTT Data Logging System
+# Energy Meter - MQTT Data Logging and Web Monitoring System
 
-This project implements a system for reading energy meter data (or simulating it), sending it via MQTT, and storing it persistently in a database on a Raspberry Pi.
+This project implements a system for reading energy meter data (or simulating it), sending it via MQTT, storing it persistently in a database on a Raspberry Pi, and displaying the latest readings via a web interface.
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [File Structure](#file-structure)
+- [Components Description](#components-description)
+  - [ESP8266 Firmware](#esp8266-firmware)
+  - [Raspberry Pi MQTT Scripts](#raspberry-pi-mqtt-scripts)
+  - [Raspberry Pi Web Server](#raspberry-pi-web-server)
+- [System Workflow](#system-workflow)
+- [Setup and Installation](#setup-and-installation)
+  - [Prerequisites](#prerequisites)
+  - [ESP8266 Setup](#esp8266-setup)
+  - [Raspberry Pi Setup](#raspberry-pi-setup)
+- [Running the System](#running-the-system)
+- [Checking the Data](#checking-the-data)
+- [Error Handling Notes](#error-handling-notes)
+- [Contributing](#contributing)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
+
+---
 
 ## Overview
 
-The system consists of two main parts:
+The system consists of three main parts:
 
-1.  **ESP8266 Microcontroller:** Responsible for gathering power data and publishing it to an MQTT broker. Two versions are provided:
-    *   One reads data from an external device via a serial connection.
-    *   One generates dummy data internally for testing purposes.
-2.  **Raspberry Pi (RPI):** Runs Python scripts that subscribe to the MQTT topics, receive the data published by the ESP8266, and store it in an SQLite database. Utility scripts are also included for viewing the stored data.
+1. **ESP8266 Microcontroller:** Responsible for gathering power data and publishing it to an MQTT broker. Two versions are provided:
+   - One reads data from an external device via a serial connection.
+   - One generates dummy data internally for testing purposes.
+2. **Raspberry Pi (RPI) - MQTT Logger:** Runs Python scripts that subscribe to MQTT topics, receive the data published by the ESP8266, and store it in an SQLite database (`power_data.db`).
+3. **Raspberry Pi (RPI) - Web Server:** Runs a Flask web application that reads the latest data from the SQLite database and presents it on a simple dashboard webpage, which updates automatically.
 
-The communication between the ESP8266 and the RPI happens via an MQTT broker, decoupling the data producer from the data consumer.
+Communication between the ESP8266 and the RPI logger happens via an MQTT broker. The web server directly accesses the database populated by the logger.
+
+---
 
 ## File Structure
 
@@ -19,175 +46,146 @@ The communication between the ESP8266 and the RPI happens via an MQTT broker, de
 EnergyMeter/
 ├── ESP8266/
 │   ├── receive_data_send_mqtt.ino       # Reads serial data, sends to MQTT (sensors/power/serial)
-│   ├── README.md                        # README specific to receive_data_send_mqtt.ino
+│   ├── README.md                        # README for receive_data_send_mqtt.ino
 │   └── Test/
 │       ├── dummy_data_send_mqtt.ino     # Generates dummy data, sends to MQTT (sensors/power/dummy)
-│       └── README.md                    # README specific to dummy_data_send_mqtt.ino
+│       └── README.md                    # README for dummy_data_send_mqtt.ino
 ├── RPI/
-│   └── MQTT/
-│       ├── receive_mqtt_store_db.py     # Subscribes to real data topic, stores in DB
-│       ├── README.md                    # README specific to receive_mqtt_store_db.py
+│   ├── power_data.db                    # SQLite database file (created by logger/test scripts)
+│   ├── MQTT/
+│   │   ├── receive_mqtt_store_db.py     # Subscribes to real data topic, stores in DB
+│   │   ├── README.md                    # README for receive_mqtt_store_db.py
+│   │   └── Test/
+│   │       ├── mqtt_data_to_db.py       # Subscribes to dummy data topic, stores in DB
+│   │       ├── print_power_db.py        # Utility to print DB contents
+│   │       └── README.md                # README for MQTT/Test scripts
+│   └── WebServer/
+│       ├── app.py                       # Flask web application backend
+│       ├── static/
+│       │   └── style.css                # CSS for the web interface
+│       ├── templates/
+│       │   └── index.html               # HTML template for the dashboard
+│       ├── README.md                    # README for the WebServer component
 │       └── Test/
-│           ├── mqtt_data_to_db.py       # Subscribes to dummy data topic, stores in DB
-│           └── print_power_db.py        # Utility to print DB contents
+│           ├── populate_db.py           # Script to add initial bulk data to DB
+│           ├── data_feeder.py           # Script to continuously add test data to DB
+│           └── README.md                # README for WebServer/Test scripts
 └── README.md                            # This file (Overall Project README)
 ```
+
+---
 
 ## Components Description
 
 ### ESP8266 Firmware
 
-*   **`ESP8266/receive_data_send_mqtt.ino`**
-    *   Connects to WiFi and an MQTT broker.
-    *   Listens for incoming data on the hardware serial port (RX pin, GPIO3) in the format `(device_id, power_value)\n`.
-    *   Parses the received device ID and power value.
-    *   Fetches the current time via NTP.
-    *   Constructs a JSON payload including `reporterDeviceId` (ESP's ID), `sourceDeviceId` (from serial), `timestamp` (NTP or millis() fallback), and `power`.
-    *   Publishes the JSON payload to the `sensors/power/serial` MQTT topic.
-    *   Includes basic retry logic with exponential backoff if MQTT publishing fails.
+- **`ESP8266/receive_data_send_mqtt.ino`:**
+  - Connects to WiFi and an MQTT broker.
+  - Reads data from a serial device, parses it, and publishes it as JSON to an MQTT topic.
+  - Includes retry logic for MQTT publishing failures.
 
-*   **`ESP8266/Test/dummy_data_send_mqtt.ino`**
-    *   Connects to WiFi and an MQTT broker.
-    *   *Simulates* power readings internally for a predefined list of device IDs (`dummyDeviceIds`).
-    *   Periodically (defined by `DUMMY_DATA_INTERVAL_MS`), generates random power values for each dummy device.
-    *   Fetches the current time via NTP.
-    *   Constructs a JSON payload similar to the real version but using the simulated data.
-    *   Publishes the JSON payload for each dummy device sequentially to the `sensors/power/dummy` MQTT topic.
-    *   Includes the same retry logic as the real version. Useful for testing the RPI backend without hardware.
+- **`ESP8266/Test/dummy_data_send_mqtt.ino`:**
+  - Simulates power readings for testing purposes.
+  - Publishes dummy data to a test MQTT topic.
 
-### Raspberry Pi Scripts
+### Raspberry Pi MQTT Scripts
 
-*   **`RPI/MQTT/receive_mqtt_store_db.py`**
-    *   Connects to the MQTT broker and subscribes to the `sensors/power/serial` topic.
-    *   Receives JSON messages published by `receive_data_send_mqtt.ino`.
-    *   Parses the JSON payload.
-    *   Validates the data (checks for required fields, valid power value).
-    *   Connects to an SQLite database (`power_data.db`).
-    *   Ensures the `power_readings` table exists with the correct schema.
-    *   Uses SQLite transactions (ACID principles) to reliably insert the data (`reporter_device_id`, `source_device_id`, `timestamp_iso`, `timestamp_unix`, `power_watts`).
-    *   Handles graceful shutdown on SIGINT/SIGTERM.
+- **`RPI/MQTT/receive_mqtt_store_db.py`:**
+  - Subscribes to a real data MQTT topic.
+  - Parses and validates incoming JSON messages.
+  - Stores the data in an SQLite database (`power_data.db`).
 
-*   **`RPI/MQTT/Test/mqtt_data_to_db.py`**
-    *   Similar to `receive_mqtt_store_db.py` but subscribes to the `sensors/power/dummy` topic.
-    *   Receives and stores the data generated by `dummy_data_send_mqtt.ino`.
-    *   Useful for testing the database logging functionality independently.
+- **`RPI/MQTT/Test/mqtt_data_to_db.py`:**
+  - Similar to `receive_mqtt_store_db.py` but subscribes to a test MQTT topic.
+  - Used for testing the database logging functionality.
 
-*   **`RPI/MQTT/Test/print_power_db.py`**
-    *   A simple utility script.
-    *   Connects to the `power_data.db` SQLite database.
-    *   Fetches all records from the `power_readings` table.
-    *   Prints the data to the console in a formatted table.
+- **`RPI/MQTT/Test/print_power_db.py`:**
+  - Prints the contents of the `power_data.db` database to the console.
+
+### Raspberry Pi Web Server
+
+- **`RPI/WebServer/app.py`:**
+  - A Flask web application that serves a dashboard displaying the latest power readings.
+  - Provides an API endpoint (`/data`) for fetching data from the database.
+
+- **`RPI/WebServer/templates/index.html`:**
+  - The HTML structure for the web dashboard.
+  - Includes JavaScript for dynamically updating the dashboard with data from the `/data` endpoint.
+
+- **`RPI/WebServer/static/style.css`:**
+  - Styles the web dashboard.
+
+---
 
 ## System Workflow
 
-1.  **Data Source:**
-    *   *(Real)* An external device sends `(device_id, power_value)\n` via serial to the ESP8266.
-    *   *(Dummy)* The ESP8266 generates `(device_id, power_value)` internally.
-2.  **ESP8266:**
-    *   Receives or generates the data.
-    *   Connects to WiFi.
-    *   Gets NTP time.
-    *   Formats data into JSON: `{ "reporterDeviceId": "...", "sourceDeviceId": "...", "timestamp": "...", "power": ... }`.
-    *   Connects to the MQTT Broker.
-    *   Publishes the JSON to the appropriate topic (`sensors/power/serial` or `sensors/power/dummy`).
-3.  **MQTT Broker:**
-    *   Receives the message from the ESP8266.
-    *   Forwards the message to any clients subscribed to that topic.
-4.  **Raspberry Pi:**
-    *   The Python script (`receive_mqtt_store_db.py` or `mqtt_data_to_db.py`) is running and subscribed to the topic.
-    *   Receives the JSON message from the broker.
-    *   Parses and validates the JSON.
-    *   Inserts the data into the `power_data.db` SQLite database using an atomic transaction.
+1. **ESP8266:** Reads or generates power data and publishes it to an MQTT topic.
+2. **MQTT Broker:** Forwards the data to subscribed clients.
+3. **Raspberry Pi (MQTT Logger):** Subscribes to the MQTT topic, processes the data, and stores it in an SQLite database.
+4. **Raspberry Pi (Web Server):** Reads the data from the database and displays it on a web dashboard.
+
+---
 
 ## Setup and Installation
 
 ### Prerequisites
 
-1.  **MQTT Broker:** An MQTT broker must be running and accessible over the network by both the ESP8266 and the Raspberry Pi. Mosquitto is a popular choice (can be installed on the RPi itself or elsewhere).
-2.  **Arduino IDE or PlatformIO:** For compiling and uploading the firmware to the ESP8266.
-3.  **Python 3:** Must be installed on the Raspberry Pi.
-4.  **ESP8266 Board:** NodeMCU, Wemos D1 Mini, or similar.
-5.  **Raspberry Pi:** Any model capable of running Python 3 and potentially the MQTT broker.
-6.  **(Optional) Serial Data Source:** An Arduino or other device capable of sending serial data for the `receive_data_send_mqtt.ino` sketch.
+1. **MQTT Broker:** Install and configure an MQTT broker (e.g., Mosquitto).
+2. **Arduino IDE or PlatformIO:** For compiling and uploading firmware to the ESP8266.
+3. **Python 3:** Ensure Python 3 is installed on the Raspberry Pi.
+4. **Required Python Libraries:** Install `paho-mqtt` and `Flask`:
+   ```bash
+   pip3 install paho-mqtt Flask
+   ```
 
 ### ESP8266 Setup
 
-1.  **Install Board Support:** Add ESP8266 board support to your Arduino IDE or PlatformIO environment.
-2.  **Install Libraries:** Install the required libraries using the Library Manager or `platformio.ini`:
-    *   `PubSubClient` by Nick O'Leary
-    *   `ArduinoJson` by Benoit Blanchon (v6.x or later)
-    *   `NTPClient` by Arduino Libraries
-3.  **Configure Sketch:**
-    *   Open either `receive_data_send_mqtt.ino` or `dummy_data_send_mqtt.ino`.
-    *   Edit the **Configuration Macros** section near the top:
-        *   `WIFI_SSID`, `WIFI_PASSWORD`
-        *   `MQTT_SERVER` (IP address or hostname of your broker)
-        *   `MQTT_PORT` (Usually 1883)
-        *   `MQTT_USER`, `MQTT_PASSWORD` (if your broker requires authentication)
-        *   `MQTT_CLIENT_ID` (Must be unique for each device connecting to the broker)
-        *   `MQTT_TOPIC` (Ensure this matches the topic the RPI script subscribes to)
-        *   `UTC_OFFSET_SECONDS` (For correct NTP time)
-        *   *(Optional)* `SERIAL_BAUD_RATE` (for `receive_data_send_mqtt.ino`, must match sender)
-        *   *(Optional)* `dummyDeviceIds` (for `dummy_data_send_mqtt.ino`)
-4.  **Hardware Connection (for `receive_data_send_mqtt.ino` only):**
-    *   Connect the **TX** pin of your serial data source to the **RX** pin (GPIO3) of the ESP8266.
-    *   Connect the **GND** pin of your serial data source to a **GND** pin of the ESP8266.
-5.  **Compile & Upload:** Select your ESP8266 board and port, then compile and upload the sketch.
-6.  **Monitor (Optional):** Open the Serial Monitor (baud rate 115200) to view connection status and debug messages.
+1. Install the required libraries (`PubSubClient`, `ArduinoJson`, `NTPClient`) in the Arduino IDE.
+2. Configure the sketch with your WiFi and MQTT broker details.
+3. Upload the sketch to the ESP8266.
 
 ### Raspberry Pi Setup
 
-1.  **Install Python Library:** Install the Paho MQTT client library:
-    ```bash
-    pip3 install paho-mqtt
-    ```
-2.  **Configure Scripts:**
-    *   Open `receive_mqtt_store_db.py` (for real data) or `RPI/MQTT/Test/mqtt_data_to_db.py` (for dummy data).
-    *   Edit the **Configuration** section near the top:
-        *   `MQTT_BROKER_HOST` (Should match the ESP8266 `MQTT_SERVER`)
-        *   `MQTT_BROKER_PORT`
-        *   `MQTT_TOPIC` (Must match the topic the corresponding ESP8266 sketch is publishing to)
-        *   `MQTT_CLIENT_ID` (Must be unique)
-        *   `MQTT_USER`, `MQTT_PASSWORD` (Must match ESP8266 credentials if used)
-        *   `DATABASE_FILE` (Path where the SQLite DB will be stored)
-3.  **(Optional) Configure `print_power_db.py`:** Ensure `DATABASE_FILE` matches the logger scripts if you want to use it.
+1. Clone the repository to your Raspberry Pi.
+2. Configure the MQTT logger scripts with your MQTT broker details.
+3. Ensure the `power_data.db` database is created and accessible.
+
+---
 
 ## Running the System
 
-1.  Ensure your MQTT Broker is running.
-2.  Power on the ESP8266 running the desired firmware. Check Serial Monitor for successful WiFi/MQTT connection.
-3.  If using `receive_data_send_mqtt.ino`, ensure the serial data source is powered and sending data.
-4.  On the Raspberry Pi, run the appropriate logger script:
-    *   For real data: `python3 /path/to/RPI/MQTT/receive_mqtt_store_db.py`
-    *   For dummy data: `python3 /path/to/RPI/MQTT/Test/mqtt_data_to_db.py`
-5.  The script will connect to the broker and start listening. You should see output indicating received messages and database storage confirmations.
-6.  Leave the Python script running (e.g., using `screen`, `tmux`, or as a systemd service for long-term logging).
+1. Start the MQTT logger script:
+   ```bash
+   python3 /path/to/EnergyMeter/RPI/MQTT/receive_mqtt_store_db.py
+   ```
+2. Start the Flask web server:
+   ```bash
+   python3 /path/to/EnergyMeter/RPI/WebServer/app.py
+   ```
+3. Access the web dashboard at `http://<your_rpi_ip_address>:5000`.
+
+---
 
 ## Checking the Data
 
-To view the data stored in the database, run the `print_power_db.py` script on the Raspberry Pi:
+1. Use the `print_power_db.py` script to view the database contents:
+   ```bash
+   python3 /path/to/EnergyMeter/RPI/MQTT/Test/print_power_db.py
+   ```
+2. Access the web dashboard to view the latest readings.
 
-```bash
-python3 /path/to/RPI/MQTT/Test/print_power_db.py
-```
-
-This will output the contents of the `power_readings` table.
+---
 
 ## Error Handling Notes
 
-### ESP8266
-* Includes basic MQTT publish retry logic with exponential backoff for transient network issues.
-* Only queues one message at a time.
-* Restarts on WiFi connection failure.
-* Uses NTP time with `millis()` fallback.
+- **ESP8266:**
+  - Includes retry logic for MQTT publishing failures.
+  - Restarts on WiFi connection failure.
+- **Raspberry Pi (MQTT Logger):**
+  - Uses SQLite transactions for atomic writes.
+  - Handles MQTT reconnections automatically.
+- **Raspberry Pi (Web Server):**
+  - Handles database errors gracefully.
+  - Returns default data or error messages if the database is unavailable.
 
-### Raspberry Pi
-* Uses SQLite transactions to ensure atomic database writes (ACID).
-* Enables WAL mode for better concurrency and durability against power loss during writes.
-* Includes validation for incoming MQTT message format and data types.
-* Handles graceful shutdown via signal handlers.
-* Automatically attempts MQTT reconnection via the Paho library.
-
-## AI Assistance
-
-Parts of the code and documentation in this repository were generated or refined with the assistance of AI tools (like Google Gemini Code Assist). Human oversight and review were applied throughout the development process.
+---

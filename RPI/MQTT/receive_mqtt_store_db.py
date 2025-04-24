@@ -1,11 +1,11 @@
-# mqtt_serial_data_to_db.py
+# receive_mqtt_store_db.py
 # Listens for MQTT messages containing power data (originally from a serial source via ESP8266)
 # and stores the parsed data into an SQLite database.
 
 import paho.mqtt.client as mqtt
 import sqlite3
 import json
-import os
+import os # <-- Make sure os is imported
 import signal
 import sys
 import time
@@ -24,7 +24,12 @@ MQTT_CLIENT_ID = "rpi-db-logger-serial" # Unique identifier for this script when
 MQTT_USER = "<YOUR_MQTT_USER>"      # Username for MQTT broker authentication. Leave blank "" if none.
 MQTT_PASSWORD = "<YOUR_MQTT_PASSWORD>"  # Password for MQTT broker authentication. Leave blank "" if none.
 
-DATABASE_FILE = "power_data.db" # Path to the SQLite database file.
+# --- Database File Path ---
+# Construct the path to power_data.db located in the parent directory (RPI folder)
+SCRIPT_DIR = os.path.dirname(__file__)
+DATABASE_FILE = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'power_data.db'))
+# --- End Database File Path ---
+
 
 # --- Database Schema Description ---
 # Table Name: power_readings
@@ -51,6 +56,7 @@ def setup_database():
     """
     global db_connection, db_cursor
     try:
+        # Use the absolute path defined above
         print(f"Connecting to database: {DATABASE_FILE}")
         # Connect to the SQLite database.
         # check_same_thread=False is necessary because the MQTT callbacks run in a separate thread.
@@ -296,3 +302,4 @@ if __name__ == "__main__":
         # This is caught if Ctrl+C is pressed, but the signal handler should take precedence.
         print("KeyboardInterrupt received (should be handled by signal handler).")
         signal_handler(signal.SIGINT, None) # Explicitly call handler just in case.
+

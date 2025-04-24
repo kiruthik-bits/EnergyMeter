@@ -1,0 +1,47 @@
+# WebServer Test Scripts (`populate_db.py` & `data_feeder.py`)
+
+This directory contains Python scripts designed for testing the database interactions and the Flask web application by generating sample data for the `power_data.db` SQLite database located in the parent `RPI` directory.
+
+## Scripts Overview
+
+### 1. `populate_db.py`
+
+*   **Purpose:** This script is designed to initialize the `power_data.db` database. It performs the following actions:
+    *   Connects to `../power_data.db`.
+    *   Creates the `power_readings` table with the correct schema if it doesn't already exist.
+    *   Creates the necessary index on the `timestamp_unix` column if it doesn't exist.
+    *   Inserts a predefined number (`NUM_RECORDS_PER_DEVICE`) of historical, random power readings for a set list of simulated devices (`DEVICES`). This is useful for populating the database with initial data for testing the web interface or queries.
+*   **Usage:** Run this script once to set up the database and add initial bulk data.
+
+    **How to Run:**
+    1.  Navigate to this directory (`WebServer/Test`) in your terminal.
+    2.  Ensure the `RPI` directory exists one level above `WebServer`.
+    3.  Execute the script using Python 3:
+        ```bash
+        python3 populate_db.py
+        ```
+    4.  The script will print messages indicating its progress and confirm when the data insertion is complete.
+
+### 2. `data_feeder.py`
+
+*   **Purpose:** This script simulates a continuous stream of incoming power data. It performs the following actions repeatedly:
+    *   Connects to `../power_data.db`.
+    *   Generates a new random power reading for each device listed in its `DEVICES` configuration.
+    *   Uses the current timestamp for the new readings.
+    *   Inserts these new readings into the `power_readings` table.
+    *   Pauses for a configured interval (`INSERT_INTERVAL_SECONDS`) before repeating the process.
+*   **Usage:** Run this script to simulate live data being added to the database over time. This is useful for testing the dynamic updating features of the web application.
+
+    **How to Run:**
+    1.  Navigate to this directory (`WebServer/Test`) in your terminal.
+    2.  Ensure the `RPI` directory exists one level above `WebServer` and that `power_data.db` (potentially created by `populate_db.py` or the MQTT logger) exists within it.
+    3.  Execute the script using Python 3:
+        ```bash
+        python3 data_feeder.py
+        ```
+    4.  The script will continuously print messages each time it inserts new records.
+    5.  **To stop the script**, press `Ctrl+C` in the terminal. It will print a "Stopping data feeder" message.
+
+## Database Location
+
+Both scripts are configured to interact with the `power_data.db` file located in the parent `RPI` directory (i.e., `../power_data.db` relative to the `WebServer` directory, or `../../power_data.db` relative to the `WebServer/Test` directory). This is the same database file used by the MQTT logger (`receive_mqtt_store_db.py`) and the Flask web application (`app.py`).

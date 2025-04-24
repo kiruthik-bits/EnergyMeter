@@ -1,0 +1,63 @@
+/* /home/kiruthik/Documents/Mtech/SEM1/SES/Assignment1/EnergyMeter/RPI/WebServer/static/style.css */
+body {
+    font-family: Arial, sans-serif;
+    padding: 2rem;
+    background: #f8f9fa;
+    color: #333; /* Added default text color */
+    line-height: 1.6; /* Improved readability */
+}
+
+h1, h2 {
+    text-align: center;
+    color: #0056b3; /* Adjusted heading color */
+}
+
+#dashboard {
+    display: flex;
+    flex-wrap: wrap; /* Allow cards to wrap on smaller screens */
+    gap: 1.5rem; /* Increased gap slightly */
+    justify-content: center;
+    margin-top: 2rem;
+}
+
+.device-card {
+    background: white;
+    border: 1px solid #ddd;
+    padding: 1.5rem; /* Adjusted padding */
+    border-radius: 8px; /* Slightly less rounded */
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1); /* Slightly stronger shadow */
+    min-width: 200px; /* Ensure cards have a minimum width */
+    text-align: center; /* Center text within cards */
+}
+
+.device-card h2 {
+    margin-top: 0; /* Remove default top margin */
+    color: #333; /* Darker color for device names */
+    font-size: 1.2em;
+}
+
+.device-card p {
+    font-size: 1em;
+    margin: 0.5em 0; /* Add some vertical spacing */
+}
+
+#total-power { /* Changed ID selector */
+    text-align: center;
+    font-size: 1.5rem; /* Adjusted size */
+    color: #dc3545; /* Changed color for emphasis */
+    margin-top: 1rem;
+    margin-bottom: 2rem; /* Added bottom margin */
+    font-weight: bold; /* Make total power bold */
+}
+
+/* Basic responsiveness */
+@media (max-width: 600px) {
+    #dashboard {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .device-card {
+        width: 80%; /* Make cards wider on small screens */
+    }
+}

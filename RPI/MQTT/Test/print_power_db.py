@@ -1,13 +1,19 @@
 import sqlite3
 import sys
+import os # <-- Make sure os is imported
 
 # --- Configuration ---
-DATABASE_FILE = "power_data.db"  # Should match the file used by mqtt_data_to_db.py
+# Construct the path to power_data.db located two levels up (in the RPI folder)
+SCRIPT_DIR = os.path.dirname(__file__)
+DATABASE_FILE = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..', 'power_data.db'))
+# --- End Configuration ---
+
 
 def fetch_and_print_data(db_file):
     """Connects to the database, fetches all data, and prints it."""
     db_connection = None  # Initialize connection variable
     try:
+        # Use the absolute path defined above
         print(f"Connecting to database: {db_file}")
         # Connect in read-only mode if possible (safer for just reading)
         # Note: URI mode might be needed for read-only on some systems/versions

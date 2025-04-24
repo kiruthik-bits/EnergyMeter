@@ -1,79 +1,149 @@
 # MQTT to SQLite Database Logger (Serial Data)
 
-This Python script listens for messages published to a specific MQTT topic, parses the JSON payload (expected to contain power data originating from a serial source via an ESP8266), and stores the relevant information into an SQLite database file.
+This Python script (`receive_mqtt_store_db.py`) listens for messages published to a specific MQTT topic, parses the JSON payload (expected to contain power data originating from a serial source via an ESP8266), and stores the relevant information into an SQLite database file (`power_data.db`).
+
+---
+
+## Table of Contents
+
+- [Purpose](#purpose)
+- [How it Works](#how-it-works)
+  - [Configuration](#configuration)
+  - [Database Setup](#database-setup)
+  - [MQTT Connection & Subscription](#mqtt-connection--subscription)
+  - [Message Handling & Validation](#message-handling--validation)
+  - [Database Insertion & ACID Compliance](#database-insertion--acid-compliance)
+  - [Background Operation & Shutdown](#background-operation--shutdown)
+- [Prerequisites & Setup](#prerequisites--setup)
+- [Error Handling Scenarios](#error-handling-scenarios)
+- [Checking the Stored Database](#checking-the-stored-database)
+- [How to Run](#how-to-run)
+- [Contributing](#contributing)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
+
+---
 
 ## Purpose
 
-The primary goal of this script is to act as a persistent data logger for power readings sent over MQTT. It's designed to work in conjunction with an ESP8266 device running firmware like `receive_data_send_mqtt.ino`, which reads data from a serial port and publishes it.
+The primary goal of this script is to act as a persistent and reliable data logger for power readings sent over MQTT. It's designed to work in conjunction with an ESP8266 device (or similar) that reads data (e.g., from a serial port) and publishes it as JSON to an MQTT broker.
+
+---
 
 ## How it Works
 
-1.  **Configuration:** Key settings like the MQTT broker address, port, topic to subscribe to, MQTT credentials, and the database filename are defined as constants at the top of the script.
-2.  **Database Setup (`setup_database`):**
-    *   Connects to the specified SQLite database file (`power_data.db` by default). If the file doesn't exist, it's created.
-    *   Uses `check_same_thread=False` to allow the database connection to be used by the MQTT callback thread.
-    *   Enables **Write-Ahead Logging (WAL)** mode (`PRAGMA journal_mode=WAL;`). This improves concurrency by allowing reads and writes to happen simultaneously, reducing locking contention.
-    *   Ensures the `power_readings` table exists with the correct schema (columns for reporter/source device IDs, timestamps, power value, and received time).
-    *   Ensures an index exists on the `timestamp_unix` column for efficient querying based on time.
-3.  **MQTT Connection:**
-    *   Initializes the Paho MQTT client with a unique `MQTT_CLIENT_ID`.
-    *   Assigns callback functions (`on_connect`, `on_message`, `on_disconnect`) to handle MQTT events.
-    *   Sets the username and password for broker authentication if they are provided in the configuration.
-    *   Attempts to connect to the MQTT broker specified by `MQTT_BROKER_HOST` and `MQTT_BROKER_PORT`.
-4.  **Subscription (`on_connect`):** Upon successfully connecting to the broker, the `on_connect` callback is triggered, and the script subscribes to the configured `MQTT_TOPIC`.
-5.  **Message Handling (`on_message`):**
-    *   When a message arrives on the subscribed topic, the `on_message` callback is executed.
-    *   The message payload (expected to be bytes) is decoded into a UTF-8 string.
-    *   The string is parsed as JSON into a Python dictionary.
-    *   Relevant fields (`reporterDeviceId`, `sourceDeviceId`, `timestamp`, `power`) are extracted using `.get()` for safety against missing keys.
-    *   **Validation:** Checks if essential fields are present and if the `power` value can be converted to a float. If validation fails, a warning is printed, and the message is skipped.
-    *   **Timestamp Conversion:** Attempts to parse the `timestamp` string (expected ISO 8601 format like `YYYY-MM-DDTHH:MM:SSZ`) into a Unix epoch timestamp (float) using `parse_iso_to_unix`. If parsing fails (e.g., the ESP8266 sent `millis()` as a fallback), the `timestamp_unix` field will be stored as `NULL` in the database.
-    *   **Database Insertion:**
-        *   Uses an explicit database transaction (`BEGIN TRANSACTION` ... `COMMIT`). This ensures that the insertion is **atomic** (either fully completes or doesn't happen at all).
-        *   Inserts the extracted and processed data into the `power_readings` table using a parameterized query (`?`) to prevent SQL injection vulnerabilities.
-        *   If the insertion is successful, the transaction is committed, making the changes permanent.
-        *   If any error occurs during insertion, the transaction is rolled back, discarding any partial changes from that transaction.
-        
-        **ACID Principles in Action:**
+### Configuration
 
-        The script leverages SQLite's features to adhere to ACID principles for database operations:
-        *   **Atomicity:** Ensured by wrapping the `INSERT` statement within `BEGIN TRANSACTION` and `COMMIT`. If any part of the insertion fails (e.g., due to constraints or errors), the `except` block triggers a `ROLLBACK`, guaranteeing that the database is either fully updated with the new row or remains completely unchanged by that attempt. The operation is treated as a single, indivisible unit.
-        *   **Consistency:** Primarily maintained by the database schema (`NOT NULL` constraints) and the script's validation logic. The script checks for required fields and valid data types before attempting the `INSERT`. If an operation would violate a database constraint (like inserting `NULL` into a `NOT NULL` column), SQLite prevents it, and the transaction rollback ensures the database remains in a valid state according to its rules.
-        *   **Isolation:** Achieved through SQLite's transaction mechanism and enhanced by the use of **Write-Ahead Logging (WAL)** mode (`PRAGMA journal_mode=WAL;`). WAL allows read operations to occur concurrently with write operations, reducing lock contention and improving performance compared to the default rollback journal. While SQLite's default isolation levels handle concurrency, WAL makes it more efficient in scenarios with frequent writes (like this logger) and potential reads (like querying the data).
-        *   **Durability:** Guaranteed by SQLite once the `COMMIT` command returns successfully. SQLite ensures that committed data is written to persistent storage (first to the WAL file, then checkpointed to the main database file) in a way that survives system crashes or power failures. Even if power is lost during the commit process, SQLite's recovery mechanisms ensure the database can be restored to the last consistent state upon restart.
+Key settings are defined as constants at the top of the script:
 
-6.  **Background Loop:** `mqtt_client.loop_start()` runs the MQTT network communication (handling keep-alives, message reception, automatic reconnection attempts) in a separate background thread. The main thread simply sleeps, keeping the script alive.
-7.  **Graceful Shutdown (`signal_handler`):** The script listens for `SIGINT` (Ctrl+C) and `SIGTERM` signals. When received, it stops the MQTT loop, disconnects cleanly from the broker, and closes the database connection before exiting.
+*   `MQTT_BROKER_HOST`, `MQTT_BROKER_PORT`: Address and port of the MQTT broker (e.g., Mosquitto).
+*   `MQTT_TOPIC`: The specific topic the script subscribes to (e.g., `"sensors/power/serial"`).
+*   `MQTT_CLIENT_ID`: A unique identifier for this script when connecting to the broker.
+*   `MQTT_USER`, `MQTT_PASSWORD`: Credentials for MQTT broker authentication (if required). Leave as placeholders or blank if none.
+*   `DATABASE_FILE`: The path to the SQLite database file. It's constructed to point to `power_data.db` in the parent directory (`RPI`).
+
+### Database Setup (`setup_database` function)
+
+1.  **Connection:** Connects to the SQLite database file specified by `DATABASE_FILE`. Creates the file if it doesn't exist. `check_same_thread=False` is used to allow the connection to be shared with the MQTT callback thread.
+2.  **WAL Mode:** Enables Write-Ahead Logging (`PRAGMA journal_mode=WAL;`). This improves concurrency, allowing reads and writes to occur more simultaneously, which is beneficial if other applications (like the web server) might read the database while this script is writing.
+3.  **Schema Creation:** Ensures the `power_readings` table exists with the correct structure:
+    *   `id`: Auto-incrementing primary key.
+    *   `reporter_device_id`: ID of the MQTT client publishing the message (e.g., ESP8266).
+    *   `source_device_id`: ID of the actual device/sensor being measured.
+    *   `timestamp_iso`: The timestamp string as received from the source.
+    *   `timestamp_unix`: The timestamp converted to Unix epoch seconds (float), used for efficient sorting/filtering. Can be `NULL` if conversion fails.
+    *   `power_watts`: The measured power value (float).
+    *   `received_at`: Timestamp automatically added when the record is inserted by this script.
+4.  **Indexing:** Ensures an index (`idx_timestamp_unix`) exists on the `timestamp_unix` column to speed up time-based queries.
+
+### MQTT Connection & Subscription
+
+1.  **Initialization:** Creates a Paho MQTT client instance.
+2.  **Callbacks:** Assigns functions (`on_connect`, `on_message`, `on_disconnect`) to handle specific MQTT events.
+3.  **Authentication:** Sets username/password if provided.
+4.  **Connection:** Connects to the MQTT broker.
+5.  **Subscription (`on_connect`):** Upon successful connection, the `on_connect` callback subscribes the client to the configured `MQTT_TOPIC`.
+
+### Message Handling & Validation (`on_message` function)
+
+1.  **Reception:** Triggered when a message arrives on the subscribed topic.
+2.  **Decoding & Parsing:** Decodes the message payload from bytes to a UTF-8 string and parses it as JSON.
+3.  **Extraction:** Safely extracts expected fields (`reporterDeviceId`, `sourceDeviceId`, `timestamp`, `power`) using `.get()`.
+4.  **Validation:**
+    *   Checks if all essential fields are present in the JSON payload.
+    *   Verifies that the `power` value can be converted to a float.
+    *   If validation fails, a warning is logged, and the message is skipped.
+5.  **Timestamp Conversion (`parse_iso_to_unix`):** Attempts to convert the received `timestamp` string (expected ISO 8601 format) into a Unix epoch float. Handles 'Z' suffix for UTC and assumes UTC for naive datetimes. Returns `None` if parsing fails (e.g., if the source sent `millis()` instead).
+
+### Database Insertion & ACID Compliance (`on_message` function)
+
+1.  **Transaction:** Every `INSERT` operation is wrapped in an explicit SQL transaction (`BEGIN TRANSACTION` ... `COMMIT`).
+2.  **Parameterized Query:** Uses `?` placeholders in the `INSERT` statement to prevent SQL injection vulnerabilities.
+3.  **Commit/Rollback:**
+    *   If the data is valid and the `INSERT` command executes successfully, `db_connection.commit()` makes the changes permanent in the database.
+    *   If any `sqlite3.Error` occurs during the `INSERT` or `COMMIT` (e.g., disk full, constraint violation), the `except` block catches it, logs the error, and attempts to `db_connection.rollback()`. This discards any partial changes from the failed transaction, ensuring the database remains in a consistent state.
+
+    **ACID Principles:**
+    *   **Atomicity:** Guaranteed by the `BEGIN TRANSACTION`/`COMMIT`/`ROLLBACK` structure. The insertion is all or nothing.
+    *   **Consistency:** Enforced by schema constraints (`NOT NULL`) and the script's pre-insertion validation. Rollback on error prevents inconsistent states.
+    *   **Isolation:** Improved by WAL mode, allowing concurrent reads (e.g., by the web server) while this script writes, reducing lock contention.
+    *   **Durability:** Ensured by SQLite's commit mechanism (especially with WAL). Once `commit()` succeeds, the changes are persistently stored and survive crashes or power failures.
+
+### Background Operation & Shutdown
+
+1.  **MQTT Loop:** `mqtt_client.loop_start()` runs the MQTT network operations (message handling, keep-alives, reconnections) in a background thread.
+2.  **Main Thread:** The main script thread stays alive using `while True: time.sleep(1)`.
+3.  **Graceful Shutdown (`signal_handler`):** Catches `SIGINT` (Ctrl+C) and `SIGTERM` signals. It cleanly stops the MQTT loop, disconnects from the broker, closes the database connection, and exits.
+
+---
+
+## Prerequisites & Setup
+
+1.  **Python 3:** Ensure Python 3 is installed (`python3 --version`).
+2.  **Paho MQTT Library:** Install using pip: `pip3 install paho-mqtt`.
+3.  **MQTT Broker:** An MQTT broker (like Mosquitto) must be running and accessible from where the script runs. See the `MQTT/Test/README.md` for Mosquitto setup instructions if needed.
+4.  **Database Location:** Ensure the parent directory (`RPI`) exists, as the script will create/use `power_data.db` there.
+
+---
 
 ## Error Handling Scenarios
 
-*   **MQTT Broker Unreachable (Initial Connect):** If the script cannot connect to the broker on startup (wrong address, port, or broker is down), it prints an error and exits.
-*   **MQTT Authentication Failure:** If the `MQTT_USER` and `MQTT_PASSWORD` are incorrect, the `on_connect` callback will report `rc=5` (Authentication Error), and the script will likely fail to subscribe or receive messages. The Paho client might keep retrying the connection.
-*   **Network Loss / MQTT Disconnection:**
-    *   If the network connection to the broker is lost after initial connection, the `on_disconnect` callback will be triggered with a non-zero return code.
-    *   The Paho MQTT client (`loop_start()`) automatically attempts to reconnect in the background with exponential backoff.
-    *   **Messages published to the topic while the script is disconnected are lost**; MQTT brokers typically do not queue messages for non-cleanly disconnected, non-persistent clients.
-*   **Invalid MQTT Message Payload:**
-    *   **Non-JSON:** If the received payload is not valid JSON, a `json.JSONDecodeError` is caught, a warning is printed, and the message is ignored.
-    *   **Missing Fields:** If the JSON is valid but missing required fields (`reporterDeviceId`, `sourceDeviceId`, `timestamp`, `power`), the validation check fails, a warning is printed, and the message is ignored.
-    *   **Invalid Power Value:** If the `power` field cannot be converted to a float, a warning is printed, and the message is ignored.
-    *   **Invalid Timestamp:** If the `timestamp` string is not a valid ISO 8601 format, `parse_iso_to_unix` returns `None`. A message is printed, and `NULL` is stored in the `timestamp_unix` database column, but the rest of the data is still saved.
-*   **Database Errors:**
-    *   **Connection Failure:** If the database file cannot be opened or created during `setup_database` (e.g., permissions issue), the script prints an error and exits.
-    *   **Insertion Failure:** If an error occurs during `INSERT` (e.g., disk full, database corruption), the `sqlite3.Error` is caught. The script attempts to `rollback()` the transaction, ensuring the database remains in a consistent state prior to the failed insertion attempt. An error message is printed.
-*   **Power Loss (Raspberry Pi):**
-    *   **Data in Transit:** Any MQTT message being processed when power is lost might be lost if it hasn't been fully committed to the database.
-    *   **Database Integrity:** SQLite's **WAL (Write-Ahead Logging)** mode and **transaction mechanism** are designed for durability. When a transaction is successfully committed, the data is written first to the WAL file and then checkpointed to the main database file. This process ensures that even if power is lost during a write, the database can recover to the last fully committed state upon restart, preventing corruption. Data from *committed* transactions should survive a power outage.
+*   **MQTT Connection Issues:** Handled by Paho MQTT's auto-reconnect mechanism (`loop_start`). Errors during initial connection or authentication failures are logged.
+*   **Network Loss:** The client attempts reconnection. Messages published during disconnection are typically lost for non-persistent sessions.
+*   **Invalid Messages:** Non-JSON payloads, messages missing required fields, or messages with invalid data types (e.g., non-numeric power) are logged as warnings and skipped. Invalid timestamps result in `NULL` being stored for `timestamp_unix`.
+*   **Database Errors:** Connection errors during setup cause the script to exit. Insertion errors trigger a transaction rollback and are logged.
+*   **Power Loss:** Committed database transactions are durable due to SQLite's mechanisms (especially WAL). Data being processed but not yet committed at the time of power loss may be lost.
+
+---
 
 ## Checking the Stored Database
 
-You can easily view the contents of the SQLite database using the companion script `print_power_db.py`.
+You can view the contents of the `power_data.db` file using:
 
-1.  **Ensure `print_power_db.py` is present** in the same directory or accessible in your Python path.
-2.  **Make sure the `DATABASE_FILE` constant** inside `print_power_db.py` matches the one used by `receive_mqtt_store_db.py` (default is `power_data.db`).
-3.  **Run the script** from your terminal:
+1.  **Command-line `sqlite3` tool:**
     ```bash
-    python print_power_db.py
+    sqlite3 ../power_data.db "SELECT * FROM power_readings ORDER BY id DESC LIMIT 10;"
     ```
-4.  **Output:** The script will connect to the database file, fetch all rows from the `power_readings` table, and print them to the console in a formatted table, including headers. This allows you to verify the data being logged by `receive_mqtt_store_db.py`.
+2.  **The `print_power_db.py` script** located in the `MQTT/Test/` directory:
+    ```bash
+    python3 Test/print_power_db.py
+    ```
+    (Ensure the path in `print_power_db.py` points correctly to `../power_data.db`).
+3.  **GUI Tools:** DB Browser for SQLite.
+
+---
+
+## How to Run
+
+1.  **Configure:** Modify the constants at the top of `receive_mqtt_store_db.py` (Broker address, Topic, Credentials if needed).
+2.  **Navigate:** Open a terminal and change to the `MQTT` directory:
+    ```bash
+    cd /path/to/EnergyMeter/RPI/MQTT/
+    ```
+3.  **Execute:** Run the script using Python 3:
+    ```bash
+    python3 receive_mqtt_store_db.py
+    ```
+4.  **Monitor:** The script will print connection status and log messages as they are received and stored.
+5.  **Stop:** Press `Ctrl+C` to trigger the graceful shutdown process.
 

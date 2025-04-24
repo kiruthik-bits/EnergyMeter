@@ -1,7 +1,7 @@
 import paho.mqtt.client as mqtt
 import sqlite3
 import json
-import os
+import os # <-- Make sure os is imported
 import signal
 import sys
 import time
@@ -18,7 +18,12 @@ MQTT_CLIENT_ID = "rpi-db-logger"
 MQTT_USER = "<YOUR_MQTT_USER>"      # MQTT Username (leave blank "" if none)
 MQTT_PASSWORD = "<YOUR_MQTT_PASSWORD>"  # MQTT Password (leave blank "" if none)
 
-DATABASE_FILE = "power_data.db"
+# --- Database File Path ---
+# Construct the path to power_data.db located two levels up (in the RPI folder)
+SCRIPT_DIR = os.path.dirname(__file__)
+DATABASE_FILE = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..', 'power_data.db'))
+# --- End Database File Path ---
+
 
 # --- Database Schema ---
 # Table Name: power_readings
@@ -43,6 +48,7 @@ def setup_database():
     """Connects to the SQLite database and creates the table if it doesn't exist."""
     global db_connection, db_cursor
     try:
+        # Use the absolute path defined above
         print(f"Connecting to database: {DATABASE_FILE}")
         # Connect to the database. check_same_thread=False allows access from the MQTT callback thread.
         db_connection = sqlite3.connect(DATABASE_FILE, check_same_thread=False)
