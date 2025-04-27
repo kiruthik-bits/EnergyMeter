@@ -1,7 +1,6 @@
 // /home/kiruthik/Documents/Mtech/SEM1/SES/Assignment1/EnergyMeter/RPI/WebServer/static/js/history.js
-console.log("--- history.js loaded ---");
 
-// --- Declare variables, but don't assign elements yet ---
+// --- Declare variables ---
 let deviceSelect, timeRangeSelect, plotlyChartDiv, loadingIndicator, errorMessage, noDataMessage;
 
 // --- API Endpoints ---
@@ -9,10 +8,7 @@ const DEVICES_API_URL = '/api/devices';
 const HISTORY_API_URL = '/api/historical_data'; // Base URL
 
 // --- Helper Functions ---
-// ... (showLoading, hideLoading, showError, showNoData - keep these) ...
 function showLoading() {
-    console.log("showLoading called");
-    // Add checks in case elements aren't found (robustness)
     if (loadingIndicator) loadingIndicator.classList.remove('d-none');
     if (errorMessage) errorMessage.classList.add('d-none');
     if (noDataMessage) noDataMessage.classList.add('d-none');
@@ -20,13 +16,13 @@ function showLoading() {
 }
 
 function hideLoading() {
-    console.log("hideLoading called");
     if (loadingIndicator) loadingIndicator.classList.add('d-none');
     if (plotlyChartDiv) plotlyChartDiv.style.display = 'block';
 }
 
 function showError(message) {
-    console.log("showError called with message:", message);
+    // Keep console.error for actual errors
+    console.error("Displaying error:", message);
     if (errorMessage) {
         errorMessage.textContent = message || 'An unknown error occurred.';
         errorMessage.classList.remove('d-none');
@@ -35,114 +31,80 @@ function showError(message) {
     if (plotlyChartDiv) plotlyChartDiv.style.display = 'none';
     try {
         if (plotlyChartDiv) Plotly.purge(plotlyChartDiv);
-    } catch(e) { console.warn("Error purging Plotly chart:", e); }
+    } catch(e) { console.warn("Error purging Plotly chart:", e); } // Keep warn for purge issues
 }
 
 function showNoData() {
-    console.log("showNoData called");
      if (noDataMessage) {
-        // --- Set a more specific message here ---
         noDataMessage.textContent = "No data available for the selected device and time range.";
-        // --- End modification ---
         noDataMessage.classList.remove('d-none');
      }
     if (errorMessage) errorMessage.classList.add('d-none');
     if (plotlyChartDiv) plotlyChartDiv.style.display = 'none';
     try {
         if (plotlyChartDiv) Plotly.purge(plotlyChartDiv);
-    } catch(e) { console.warn("Error purging Plotly chart:", e); }
+    } catch(e) { console.warn("Error purging Plotly chart:", e); } // Keep warn for purge issues
 }
 
 
 // --- Plotly Chart Logic ---
-// ... (updatePlotlyChart function remains the same) ...
 function updatePlotlyChart(plotData, deviceId) {
-    // Keep the existing log here
-    console.log("updatePlotlyChart called. Device:", deviceId, "Data points:", plotData.x.length);
     if (!plotlyChartDiv) {
         console.error("plotlyChartDiv element not found for plotting.");
         return;
     }
-    plotlyChartDiv.style.display = 'block'; // Ensure div is visible
+    plotlyChartDiv.style.display = 'block';
 
     const trace = {
-        x: plotData.x, // Array of timestamps
-        y: plotData.y, // Array of power values
-        mode: 'lines+markers', // Show lines and markers
-        type: 'scatter', // Use scatter type for time series
-        name: `Power (Watts)`, // Legend entry
-        line: {
-            color: 'rgb(0, 123, 255)', // Bootstrap primary blue
-            width: 1.5
-        },
-        marker: {
-            size: plotData.x.length > 200 ? 2 : 4 // Smaller markers if lots of data
-        },
-        hovertemplate: '%{y:.2f} W<extra></extra>' // Customize hover text
+        x: plotData.x,
+        y: plotData.y,
+        mode: 'lines+markers',
+        type: 'scatter',
+        name: `Power (Watts)`,
+        line: { color: 'rgb(0, 123, 255)', width: 1.5 },
+        marker: { size: plotData.x.length > 200 ? 2 : 4 },
+        hovertemplate: '%{y:.2f} W<extra></extra>'
     };
 
     const layout = {
         title: `Power Consumption - ${deviceId}`,
-        xaxis: {
-            title: 'Time',
-            type: 'date', // Use date axis type
-             tickformat: '%H:%M\n%b %d', // Example format
-        },
-        yaxis: {
-            title: 'Power (Watts)',
-            rangemode: 'tozero' // Ensure Y-axis starts at 0
-        },
-        margin: { l: 60, r: 30, b: 50, t: 80 }, // Adjust margins
-        hovermode: 'x unified' // Show hover info for points with the same x-value
+        xaxis: { title: 'Time', type: 'date', tickformat: '%H:%M\n%b %d' },
+        yaxis: { title: 'Power (Watts)', rangemode: 'tozero' },
+        margin: { l: 60, r: 30, b: 50, t: 80 },
+        hovermode: 'x unified'
     };
 
     Plotly.react(plotlyChartDiv, [trace], layout, {responsive: true});
-    console.log("Plotly chart updated/created.");
 }
 
 
 // --- Data Fetching ---
-// ... (fetchDevices and fetchAndUpdateChart functions remain largely the same,
-//      they will now use the globally scoped variables assigned in DOMContentLoaded) ...
 async function fetchDevices() {
-    console.log("fetchDevices function started");
-
-    // --- More specific check ---
-    let missingElements = [];
-    if (!deviceSelect) missingElements.push('deviceSelect (ID: device-select)');
-    if (!plotlyChartDiv) missingElements.push('plotlyChartDiv (ID: plotlyChartDiv)');
-    if (!noDataMessage) missingElements.push('noDataMessage (ID: no-data-message)');
-
-    if (missingElements.length > 0) {
-        console.error("Required elements not found in fetchDevices:", missingElements.join(', '));
+    let devicesPopulated = false;
+    if (!deviceSelect || !plotlyChartDiv || !noDataMessage) {
+        console.error("Required elements not found in fetchDevices.");
         showError("Page elements missing. Cannot load devices.");
-        return;
+        return devicesPopulated;
     }
-    // --- End specific check ---
-
     try {
         const response = await fetch(DEVICES_API_URL);
-        console.log("fetchDevices API response status:", response.status);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const devices = await response.json();
-        console.log("fetchDevices received devices:", devices);
 
         deviceSelect.innerHTML = ''; // Clear existing options
 
         if (!Array.isArray(devices) || devices.length === 0) {
-             console.log("fetchDevices: No devices found or invalid format.");
              deviceSelect.innerHTML = '<option value="" selected disabled>No devices found</option>';
              showError('No devices found in the database.');
-             return;
+             return devicesPopulated;
         }
 
         // Add placeholder option
         const placeholderOption = document.createElement('option');
         placeholderOption.value = "";
         placeholderOption.textContent = "-- Select a Device --";
-        placeholderOption.disabled = true;
         placeholderOption.selected = true;
         deviceSelect.appendChild(placeholderOption);
 
@@ -153,34 +115,26 @@ async function fetchDevices() {
             option.textContent = device;
             deviceSelect.appendChild(option);
         });
-        console.log("fetchDevices: Populated device dropdown.");
-
-        // Initial UI state
-        plotlyChartDiv.style.display = 'none';
-        noDataMessage.textContent = "Please select a device and time range.";
-        noDataMessage.classList.remove('d-none');
+        devicesPopulated = true;
 
     } catch (error) {
-        console.error('Error fetching devices:', error);
+        console.error('Error fetching devices:', error); // Keep essential error log
         if (deviceSelect) deviceSelect.innerHTML = '<option value="" selected disabled>Error loading devices</option>';
         showError(`Could not load device list: ${error.message}`);
     }
-    console.log("fetchDevices function finished");
+    return devicesPopulated;
 }
 
 async function fetchAndUpdateChart() {
-    console.log("fetchAndUpdateChart function started");
-     // Add check
     if (!deviceSelect || !timeRangeSelect || !plotlyChartDiv || !noDataMessage || !errorMessage || !loadingIndicator) {
         console.error("Required elements not found in fetchAndUpdateChart.");
         return;
     }
     const selectedDevice = deviceSelect.value;
     const selectedHours = timeRangeSelect.value;
-    console.log(`Selected Device: ${selectedDevice}, Selected Hours: ${selectedHours}`);
 
-    if (!selectedDevice) {
-        console.log("fetchAndUpdateChart: No device selected, exiting.");
+    // Check if a valid device is selected (not the placeholder)
+    if (!selectedDevice || deviceSelect.selectedIndex === 0) {
         plotlyChartDiv.style.display = 'none';
         noDataMessage.textContent = "Please select a device.";
         noDataMessage.classList.remove('d-none');
@@ -194,9 +148,7 @@ async function fetchAndUpdateChart() {
 
     try {
         const url = `${HISTORY_API_URL}?device_id=${encodeURIComponent(selectedDevice)}&hours=${selectedHours}`;
-        console.log("fetchAndUpdateChart: Fetching URL:", url);
         const response = await fetch(url);
-        console.log("fetchAndUpdateChart: API response status:", response.status);
 
         if (!response.ok) {
             let errorMsg = `HTTP error! status: ${response.status}`;
@@ -208,7 +160,6 @@ async function fetchAndUpdateChart() {
         }
 
         const data = await response.json();
-        console.log("fetchAndUpdateChart: Received data count:", data.length);
 
         if (!Array.isArray(data)) {
             throw new Error("Received invalid data format from server.");
@@ -225,50 +176,64 @@ async function fetchAndUpdateChart() {
             plotData.x.push(item.timestamp);
             plotData.y.push(item.power);
         });
-        console.log("Data being sent to Plotly:", plotData);
 
         updatePlotlyChart(plotData, selectedDevice);
 
     } catch (error) {
-        console.error('Error fetching or processing historical data:', error);
+        console.error('Error fetching or processing historical data:', error); // Keep essential error log
         showError(`Error loading chart data: ${error.message}`);
     } finally {
         hideLoading();
     }
-    console.log("fetchAndUpdateChart function finished");
 }
 
 
 // --- Event Listeners & Initial Load ---
-document.addEventListener('DOMContentLoaded', () => {
-    console.log("DOMContentLoaded event fired");
-
-    // --- Assign elements AFTER DOM is loaded ---
+document.addEventListener('DOMContentLoaded', async () => {
+    // Assign elements AFTER DOM is loaded
     deviceSelect = document.getElementById('device-select');
     timeRangeSelect = document.getElementById('time-range-select');
     plotlyChartDiv = document.getElementById('plotlyChartDiv');
-    console.log("Result of getElementById('plotlyChartDiv'):", plotlyChartDiv);
     loadingIndicator = document.getElementById('loading-indicator');
     errorMessage = document.getElementById('error-message');
     noDataMessage = document.getElementById('no-data-message');
-    // --- End assignment ---
 
     // Check if elements were found before adding listeners/calling functions
     if (deviceSelect && timeRangeSelect) {
-        deviceSelect.addEventListener('change', () => {
-            console.log("Device selection changed!");
-            fetchAndUpdateChart();
-        });
-        timeRangeSelect.addEventListener('change', () => {
-            console.log("Time range selection changed!");
-            fetchAndUpdateChart();
-        });
+        deviceSelect.addEventListener('change', fetchAndUpdateChart);
+        timeRangeSelect.addEventListener('change', fetchAndUpdateChart);
 
-        // Now safe to call fetchDevices
-        fetchDevices();
+        // Fetch devices and wait for the dropdown to be populated
+        const devicesLoaded = await fetchDevices();
+
+        if (devicesLoaded) {
+            // Check URL for device_id
+            const urlParams = new URLSearchParams(window.location.search);
+            const deviceIdFromUrl = urlParams.get('device_id');
+
+            if (deviceIdFromUrl) {
+                const options = Array.from(deviceSelect.options).map(opt => opt.value);
+                if (options.includes(deviceIdFromUrl)) {
+                    deviceSelect.value = deviceIdFromUrl;
+                    fetchAndUpdateChart(); // Trigger the chart load
+                } else {
+                    console.warn("Device ID from URL not found in dropdown options."); // Keep this warning
+                    noDataMessage.textContent = "Device specified in URL not found. Please select a device.";
+                    noDataMessage.classList.remove('d-none');
+                    plotlyChartDiv.style.display = 'none';
+                }
+            } else {
+                 // Show prompt if no device in URL
+                 noDataMessage.textContent = "Please select a device and time range.";
+                 noDataMessage.classList.remove('d-none');
+                 plotlyChartDiv.style.display = 'none';
+            }
+        } else {
+             console.error("Device fetching failed, cannot proceed."); // Keep essential error log
+        }
+
     } else {
-        console.error("Could not find essential dropdown elements (device-select or time-range-select).");
-        // Optionally display an error to the user on the page
+        console.error("Could not find essential dropdown elements (device-select or time-range-select)."); // Keep essential error log
         if(errorMessage) {
             errorMessage.textContent = "Error initializing page controls.";
             errorMessage.classList.remove('d-none');

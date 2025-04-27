@@ -9,7 +9,8 @@ from .db import get_db # Import get_db from the db module
 
 def get_latest_stats() -> Dict[str, Any]:
     """
-    Fetches the latest power reading for each device and the total current power.
+    Fetches the latest power reading and its timestamp for each device,
+    and the total current power.
     Returns a dictionary containing device stats and total power.
     """
     conn = get_db()
@@ -19,39 +20,45 @@ def get_latest_stats() -> Dict[str, Any]:
     devices: List[str] = []
 
     try:
-        # Get distinct device IDs that have reported data
         cursor.execute('SELECT DISTINCT source_device_id FROM power_readings ORDER BY source_device_id')
-        # Fetchall returns list of Row objects, extract the first element (device_id)
         devices = [row['source_device_id'] for row in cursor.fetchall()]
 
         for device_id in devices:
-            # Get the most recent reading for each device based on timestamp_unix
+            # Get the most recent reading (power and timestamp)
             cursor.execute('''
-                SELECT power_watts
+                SELECT power_watts, timestamp_unix
                 FROM power_readings
                 WHERE source_device_id = ?
+                  AND timestamp_unix IS NOT NULL  -- Ensure we have a timestamp
+                  AND power_watts IS NOT NULL
                 ORDER BY timestamp_unix DESC, received_at DESC
                 LIMIT 1
             ''', (device_id,))
             latest_reading = cursor.fetchone()
 
-            if latest_reading and latest_reading['power_watts'] is not None:
+            if latest_reading:
                 latest_power = round(float(latest_reading['power_watts']), 2)
-                result[device_id] = {'latest': latest_power}
+                latest_timestamp = latest_reading['timestamp_unix'] # Get the timestamp
+                result[device_id] = {
+                    'latest': latest_power,
+                    'timestamp_unix': latest_timestamp # Add timestamp to result
+                }
                 total_current_power += latest_power
             else:
-                 result[device_id] = {'latest': 0.0} # Default to float
+                 # If no reading found, indicate it clearly
+                 result[device_id] = {
+                     'latest': 0.0,
+                     'timestamp_unix': None # Indicate no timestamp
+                 }
 
         result['Total']['total_power'] = round(total_current_power, 2)
 
     except sqlite3.Error as e:
         current_app.logger.error(f"Database error in get_latest_stats: {e}")
-        # Return a structured error in the result
         result = {'Total': {'total_power': 0.0}, 'error': f"Database error: {e}"}
     except Exception as e:
         current_app.logger.error(f"Unexpected error in get_latest_stats: {e}")
         result = {'Total': {'total_power': 0.0}, 'error': f"An unexpected error occurred: {e}"}
-    # No finally block needed for closing connection, handled by teardown_appcontext
 
     return result
 
