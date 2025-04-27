@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}History - Energy Monitor{% endblock %}
+
+{% block head_scripts %}
+    <!-- Include Plotly.js -->
+    <script src='https://cdn.plot.ly/plotly-latest.min.js'></script>
+{% endblock %}
+
+
+{% block content %}
+<div class="container">
+    <h1 class="mb-4 text-center">Historical Power Consumption</h1>
+
+    <!-- Controls -->
+    <div class="row justify-content-center g-3 align-items-center mb-4">
+        <div class="col-md-4 col-sm-6">
+            <label for="device-select" class="form-label">Device:</label>
+            <select id="device-select" class="form-select">
+                <option value="" selected disabled>Loading Devices...</option>
+            </select>
+        </div>
+        <div class="col-md-4 col-sm-6">
+            <label for="time-range-select" class="form-label">Time Range:</label>
+            <select id="time-range-select" class="form-select">
+                <option value="1">Last 1 Hour</option>
+                <option value="6">Last 6 Hours</option>
+                <option value="24" selected>Last 24 Hours</option>
+                <option value="168">Last 7 Days</option> <!-- 24 * 7 -->
+                <option value="720">Last 30 Days</option> <!-- 24 * 30 -->
+            </select>
+        </div>
+        <!-- Optional: Add a refresh button -->
+        <!-- <div class="col-auto">
+            <button id="refresh-chart-btn" class="btn btn-primary mt-4">Refresh</button>
+        </div> -->
+    </div>
+
+    <!-- Chart Container -->
+    <div class="card shadow-sm">
+        <div class="card-body">
+             <!-- Change canvas to div for Plotly -->
+             <div id="plotlyChartDiv" style="width:100%; height:60vh;"></div>
+             <!-- Loading Spinner -->
+            <div id="loading-indicator" class="text-center mt-3 d-none">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p>Loading chart data...</p>
+            </div>
+             <!-- Error Message -->
+             <div id="error-message" class="alert alert-warning mt-3 d-none" role="alert">
+                Could not load chart data.
+            </div>
+             <div id="no-data-message" class="alert alert-info mt-3 d-none" role="alert">
+                No data available for the selected device and time range.
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+    <!-- Link to the history JavaScript file -->
+    <script src="{{ url_for('static', filename='js/history.js') }}"></script>
+{% endblock %}

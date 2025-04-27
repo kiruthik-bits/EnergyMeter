@@ -1,0 +1,20 @@
+/* /home/kiruthik/Documents/Mtech/SEM1/SES/Assignment1/EnergyMeter/RPI/WebServer/static/css/style.css */
+
+/* Example: Custom override for card header */
+/* .card-header {
+    font-weight: bold;
+} */
+
+/* Add any specific custom styles here that Bootstrap doesn't cover */
+body {
+    /* Example: Slightly different background if needed */
+    /* background-color: #e9ecef; */
+}
+
+#chart-container canvas {
+    /* Ensure canvas doesn't cause overflow issues initially */
+    max-width: 100%;
+}
+
+/* You might not need much here anymore */
+

@@ -1,77 +1,62 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Energy Monitoring Dashboard</title>
-    <!-- Link to your existing style.css -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body>
-    <h1>Energy Monitoring Dashboard</h1>
-    <!-- Display Total Power -->
-    <div id="total-power"></div>
-    <!-- Container for individual device cards -->
-    <div id="dashboard"></div>
+{% extends "base.html" %}
 
-    <script>
-    function loadData() {
-        fetch('/data')
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                const dashboard = document.getElementById('dashboard');
-                const totalDiv = document.getElementById('total-power'); // Changed ID for clarity
-                dashboard.innerHTML = ''; // Clear previous cards
+{% block title %}Dashboard - Energy Monitor{% endblock %}
 
-                // Display Total Power
-                if (data.Total && data.Total.total_power !== undefined) {
-                     // Changed property name to total_power
-                    totalDiv.innerHTML = `<h2>Total Current Power: ${data.Total.total_power.toFixed(2)} W</h2>`;
-                } else {
-                    totalDiv.innerHTML = '<h2>Total Current Power: N/A</h2>';
-                }
+{% block content %}
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="mb-0">Energy Monitoring Dashboard</h1>
+        <!-- Refresh Button -->
+        <button id="refresh-button" class="btn btn-primary">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-clockwise" viewBox="0 0 16 16">
+                <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
+                <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/>
+            </svg>
+            Refresh
+        </button>
+        <!-- End Refresh Button -->
+    </div>
 
-                // Display Individual Device Cards
-                for (const deviceId in data) {
-                    // Skip the 'Total' entry
-                    if (deviceId === 'Total') continue;
+    <!-- Total Power Display -->
+    <div id="total-power-card" class="card text-white bg-danger mb-4 shadow-sm mx-auto" style="max-width: 400px;">
+        <div class="card-header text-center fs-5">Total Current Power</div>
+        <div class="card-body text-center">
+            <h2 id="total-power-value" class="card-title display-5">Loading...</h2>
+        </div>
+    </div>
 
-                    const stats = data[deviceId];
-                    const card = document.createElement('div');
-                    card.className = 'device-card'; // Use class from your style.css
+    <!-- Device Cards Area -->
+    <h2 class="mb-3 text-center">Device Readings</h2>
+    <div id="dashboard-cards" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+        <!-- Device cards will be loaded here by JavaScript -->
+        <div class="col placeholder-glow" aria-hidden="true">
+             <div class="card shadow-sm">
+                 <div class="card-body">
+                     <h5 class="card-title placeholder col-6"></h5>
+                     <p class="card-text placeholder col-8"></p>
+                 </div>
+             </div>
+         </div>
+         <div class="col placeholder-glow" aria-hidden="true">
+             <div class="card shadow-sm">
+                 <div class="card-body">
+                     <h5 class="card-title placeholder col-7"></h5>
+                     <p class="card-text placeholder col-9"></p>
+                 </div>
+             </div>
+         </div>
+         <!-- Add more placeholders if desired -->
+    </div>
 
-                    // Display latest power reading
-                    let latestPower = 'N/A';
-                    if (stats && stats.latest !== undefined) {
-                        latestPower = `${stats.latest.toFixed(2)} W`;
-                    }
+    <!-- Error Message Area -->
+    <div id="error-message" class="alert alert-danger mt-4 d-none" role="alert">
+        Error loading data. Please try again later.
+    </div>
 
-                    card.innerHTML = `
-                        <h2>${deviceId}</h2>
-                        <p>Latest Reading: ${latestPower}</p>
-                        <!-- Add other stats like average/peak here if you implement them -->
-                    `;
-                    dashboard.appendChild(card);
-                }
-                console.log("Refreshed data at", new Date().toLocaleTimeString());
-            })
-            .catch(error => {
-                console.error('Error fetching data:', error);
-                const dashboard = document.getElementById('dashboard');
-                const totalDiv = document.getElementById('total-power');
-                dashboard.innerHTML = '<p style="color: red;">Error loading device data.</p>';
-                totalDiv.innerHTML = '<p style="color: red;">Error loading total power.</p>';
-            });
-    }
+</div>
+{% endblock %}
 
-    // Initial load
-    loadData();
-    // Refresh data every 5 seconds (5000 milliseconds)
-    setInterval(loadData, 5000); // Keep the 5-second interval or adjust as needed
-    </script>
-
-</body>
-</html>
+{% block scripts %}
+    <!-- Link to the dashboard JavaScript file -->
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

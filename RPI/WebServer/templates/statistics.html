@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - Energy Monitor{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="mb-4 text-center">Device Statistics</h1>
+
+    <!-- Controls -->
+    <div class="row justify-content-center g-3 align-items-center mb-4">
+        <div class="col-md-4 col-sm-6">
+            <label for="device-select" class="form-label">Device:</label>
+            <select id="device-select" class="form-select">
+                <option value="" selected disabled>Loading Devices...</option>
+            </select>
+        </div>
+        <div class="col-md-4 col-sm-6">
+            <label for="time-range-select" class="form-label">Time Range:</label>
+            <select id="time-range-select" class="form-select">
+                <option value="1">Last 1 Hour</option>
+                <option value="6">Last 6 Hours</option>
+                <option value="24" selected>Last 24 Hours</option>
+                <option value="168">Last 7 Days</option> <!-- 24 * 7 -->
+                <option value="720">Last 30 Days</option> <!-- 24 * 30 -->
+            </select>
+        </div>
+    </div>
+
+    <!-- Statistics Display Area -->
+    <div id="stats-display" class="mt-4 d-none"> <!-- Initially hidden -->
+        <h2 id="stats-device-title" class="text-center mb-3">Statistics for...</h2>
+        <div class="row g-4 justify-content-center">
+            <!-- Average Power Card -->
+            <div class="col-md-4">
+                <div class="card text-center shadow-sm h-100">
+                    <div class="card-header fs-5">Average Power</div>
+                    <div class="card-body">
+                        <p id="avg-power" class="card-text display-6">---</p>
+                        <small class="text-muted">Watts</small>
+                    </div>
+                </div>
+            </div>
+            <!-- Peak Usage Card -->
+            <div class="col-md-4">
+                <div class="card text-center shadow-sm h-100">
+                    <div class="card-header fs-5">Peak Usage</div>
+                    <div class="card-body">
+                        <p id="peak-power" class="card-text display-6">---</p>
+                        <small id="peak-time" class="text-muted">at ---</small>
+                    </div>
+                </div>
+            </div>
+            <!-- Total Energy Card -->
+            <div class="col-md-4">
+                <div class="card text-center shadow-sm h-100">
+                    <div class="card-header fs-5">Total Energy</div>
+                    <div class="card-body">
+                        <p id="total-energy" class="card-text display-6">---</p>
+                        <small class="text-muted">kWh (Approx.)</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Spinner -->
+    <div id="loading-indicator" class="text-center mt-5 d-none">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p>Calculating statistics...</p>
+    </div>
+     <!-- Error Message -->
+     <div id="error-message" class="alert alert-warning mt-4 d-none" role="alert">
+        Could not load statistics.
+    </div>
+     <div id="select-prompt-message" class="alert alert-info mt-4" role="alert">
+        Please select a device and time range to view statistics.
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+    <!-- Link to the new statistics JavaScript file -->
+    <script src="{{ url_for('static', filename='js/statistics.js') }}"></script>
+{% endblock %}
