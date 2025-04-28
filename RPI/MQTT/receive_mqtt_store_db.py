@@ -2,6 +2,24 @@
 # Listens for MQTT messages containing power data (originally from a serial source via ESP8266)
 # and stores the parsed data into an SQLite database.
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    # Fallback for Python < 3.9 (requires pip install backports.zoneinfo)
+    try:
+        from backports.zoneinfo import ZoneInfo
+    except ImportError:
+        print("[ERROR] Please install 'backports.zoneinfo' for Python < 3.9 (`pip install backports.zoneinfo`)")
+        # Define a fallback fixed offset timezone if zoneinfo is unavailable
+        class IST(timezone):
+            def utcoffset(self, dt):
+                return timedelta(hours=5, minutes=30)
+            def dst(self, dt):
+                return timedelta(0)
+            def tzname(self, dt):
+                return "IST"
+        ZoneInfo = lambda tz: IST() if tz == "Asia/Kolkata"
+
 import paho.mqtt.client as mqtt
 import sqlite3
 import json
@@ -9,7 +27,7 @@ import os # <-- Make sure os is imported
 import signal
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 # --- Configuration ---
 MQTT_BROKER_HOST = "localhost"  # IP address or hostname of the MQTT broker.
@@ -89,30 +107,51 @@ def setup_database():
         print(f"Database error during setup: {e}")
         sys.exit(1) # Exit if database setup fails critically.
 
-def parse_iso_to_unix(iso_str):
+def parse_iso_to_unix(timestamp_str):
     """
-    Attempts to parse an ISO 8601 formatted timestamp string into a Unix epoch timestamp (float).
-    Handles 'Z' suffix for UTC and assumes UTC if no timezone offset is provided.
-
-    Args:
-        iso_str (str): The timestamp string to parse.
-
-    Returns:
-        float: The Unix timestamp (seconds since epoch), or None if parsing fails.
+    Attempts to parse a timestamp string into a Unix epoch timestamp (float).
+    Handles ISO 8601 format (assuming UTC if naive or marked with 'Z').
+    Handles 'hh:mm:ss' format by interpreting it as IST on the current IST date.
     """
+    if not timestamp_str: # Handle empty string or None
+        return None
+
     try:
-        # Replace 'Z' with the equivalent UTC offset '+00:00' for consistent parsing.
-        if iso_str.endswith('Z'):
-            iso_str = iso_str[:-1] + '+00:00'
-        # Parse the ISO formatted string.
-        dt = datetime.fromisoformat(iso_str)
-        # If the parsed datetime object is naive (no timezone info), assume it's UTC.
+        # Handle 'hh:mm:ss' format specifically
+        if len(timestamp_str) == 8 and timestamp_str.count(':') == 2:
+            try:
+                # Get the current time in IST
+                ist_tz = ZoneInfo("Asia/Kolkata")
+                now_ist = datetime.now(ist_tz)
+                # Combine current IST date with the received time string
+                dt_naive = datetime.strptime(f"{now_ist.strftime('%Y-%m-%d')} {timestamp_str}", '%Y-%m-%d %H:%M:%S')
+                # Make the datetime object timezone-aware using IST
+                dt_aware = dt_naive.replace(tzinfo=ist_tz)
+                # Convert to Unix timestamp (which is always UTC based)
+                return dt_aware.timestamp()
+            except Exception as e_time:
+                print(f"  [WARN] Could not parse 'hh:mm:ss' time '{timestamp_str}' as IST: {e_time}")
+                return None # Failed to parse hh:mm:ss
+
+        # Handle standard ISO 8601 format
+        # Replace 'Z' with '+00:00' for consistent parsing by fromisoformat
+        if timestamp_str.endswith('Z'):
+            timestamp_str = timestamp_str[:-1] + '+00:00'
+
+        # Parse the ISO formatted string
+        dt = datetime.fromisoformat(timestamp_str)
+
+        # If the parsed datetime object is naive (no timezone info), assume it's UTC
         if dt.tzinfo is None:
-             dt = dt.replace(tzinfo=timezone.utc)
-        # Return the timestamp as seconds since the Unix epoch.
+            dt = dt.replace(tzinfo=timezone.utc)
+        # If it has timezone info, fromisoformat handles it correctly.
+
+        # Return the timestamp as seconds since the Unix epoch (UTC)
         return dt.timestamp()
-    except (ValueError, TypeError):
-        # Handle cases where the string is not a valid ISO format or is None.
+
+    except (ValueError, TypeError) as e:
+        # Handle cases where the string is not a valid format or is None
+        # print(f"  [DEBUG] Failed to parse timestamp '{timestamp_str}': {e}") # Optional debug
         return None
 
 # --- MQTT Callback Functions ---
