@@ -80,14 +80,14 @@ def calculate_average_power(device_id: str, time_range_hours: int) -> Optional[f
     average_power = None
 
     try:
-        # Filter using strftime('%s', received_at)
+        # Filter using CAST(strftime('%s', received_at) AS REAL)
         cursor.execute('''
             SELECT AVG(power_watts)
             FROM power_readings
             WHERE source_device_id = ?
-              AND strftime('%s', received_at) BETWEEN ? AND ?
+              AND CAST(strftime('%s', received_at) AS REAL) BETWEEN ? AND ? -- Cast added here
               AND power_watts IS NOT NULL
-              AND received_at IS NOT NULL -- Added check for received_at
+              AND received_at IS NOT NULL
         ''', (device_id, start_ts, end_ts))
         result = cursor.fetchone()
         if result and result[0] is not None:
@@ -107,14 +107,14 @@ def find_peak_usage(device_id: str, time_range_hours: int) -> Optional[Dict[str,
     peak_data = None
 
     try:
-        # Find max power first, filtering with strftime
+        # Find max power first, filtering with CAST(strftime AS REAL)
         cursor.execute('''
             SELECT MAX(power_watts)
             FROM power_readings
             WHERE source_device_id = ?
-              AND strftime('%s', received_at) BETWEEN ? AND ?
+              AND CAST(strftime('%s', received_at) AS REAL) BETWEEN ? AND ? -- Cast added here
               AND power_watts IS NOT NULL
-              AND received_at IS NOT NULL -- Added check for received_at
+              AND received_at IS NOT NULL
         ''', (device_id, start_ts, end_ts))
         max_power_result = cursor.fetchone()
 
@@ -126,9 +126,9 @@ def find_peak_usage(device_id: str, time_range_hours: int) -> Optional[Dict[str,
                 SELECT CAST(strftime('%s', received_at) AS REAL) as peak_timestamp_unix
                 FROM power_readings
                 WHERE source_device_id = ?
-                  AND strftime('%s', received_at) BETWEEN ? AND ?
+                  AND CAST(strftime('%s', received_at) AS REAL) BETWEEN ? AND ? -- Cast added here
                   AND power_watts = ?
-                  AND received_at IS NOT NULL -- Added check for received_at
+                  AND received_at IS NOT NULL
                 ORDER BY received_at DESC
                 LIMIT 1
             ''', (device_id, start_ts, end_ts, peak_power))
@@ -163,7 +163,7 @@ def calculate_total_energy_kwh(device_id: str, time_range_hours: int) -> Optiona
             SELECT CAST(strftime('%s', received_at) AS REAL) as ts_unix, power_watts
             FROM power_readings
             WHERE source_device_id = ?
-              AND strftime('%s', received_at) BETWEEN ? AND ?
+              AND CAST(strftime('%s', received_at) AS REAL) BETWEEN ? AND ? -- Cast added here
               AND received_at IS NOT NULL
               AND power_watts IS NOT NULL
             ORDER BY received_at ASC
@@ -224,7 +224,7 @@ def get_historical_data(device_id: str, time_range_hours: int) -> List[Dict[str,
             SELECT CAST(strftime('%s', received_at) AS REAL) as received_at_unix, power_watts
             FROM power_readings
             WHERE source_device_id = ?
-              AND strftime('%s', received_at) BETWEEN ? AND ?
+              AND CAST(strftime('%s', received_at) AS REAL) BETWEEN ? AND ? -- Cast added here
               AND received_at IS NOT NULL
               AND power_watts IS NOT NULL
             ORDER BY received_at ASC

@@ -1,6 +1,7 @@
 # receive_mqtt_store_db.py
 # Listens for MQTT messages containing power data (originally from a serial source via ESP8266)
 # and stores the parsed data into an SQLite database.
+from datetime import datetime, timezone, timedelta
 
 try:
     from zoneinfo import ZoneInfo
@@ -18,7 +19,7 @@ except ImportError:
                 return timedelta(0)
             def tzname(self, dt):
                 return "IST"
-        ZoneInfo = lambda tz: IST() if tz == "Asia/Kolkata"
+        ZoneInfo = lambda tz: IST() if tz == "Asia/Kolkata" else timezone.utc
 
 import paho.mqtt.client as mqtt
 import sqlite3
@@ -27,7 +28,7 @@ import os # <-- Make sure os is imported
 import signal
 import sys
 import time
-from datetime import datetime, timezone, timedelta
+
 
 # --- Configuration ---
 MQTT_BROKER_HOST = "localhost"  # IP address or hostname of the MQTT broker.
