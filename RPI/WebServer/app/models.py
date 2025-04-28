@@ -1,17 +1,16 @@
 # /home/kiruthik/Documents/Mtech/SEM1/SES/Assignment1/EnergyMeter/RPI/WebServer/app/models.py
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Any, Optional, Tuple # Added type hints
-from flask import current_app # Use current_app to access logger
+from typing import List, Dict, Any, Optional, Tuple
+from flask import current_app
 import math
 
-from .db import get_db # Import get_db from the db module
+from .db import get_db
 
 def get_latest_stats() -> Dict[str, Any]:
     """
-    Fetches the latest power reading and its timestamp for each device,
-    and the total current power.
-    Returns a dictionary containing device stats and total power.
+    Fetches the latest power reading and its 'received_at' timestamp (as Unix epoch)
+    for each device.
     """
     conn = get_db()
     cursor = conn.cursor()
@@ -24,31 +23,32 @@ def get_latest_stats() -> Dict[str, Any]:
         devices = [row['source_device_id'] for row in cursor.fetchall()]
 
         for device_id in devices:
-            # Get the most recent reading (power and timestamp)
+            # Get the most recent reading based on received_at
             cursor.execute('''
-                SELECT power_watts, timestamp_unix
+                SELECT power_watts, unixepoch(received_at) as received_at_unix
                 FROM power_readings
                 WHERE source_device_id = ?
-                  AND timestamp_unix IS NOT NULL  -- Ensure we have a timestamp
+                  AND received_at IS NOT NULL -- Ensure received_at is not NULL
                   AND power_watts IS NOT NULL
-                ORDER BY timestamp_unix DESC, received_at DESC
+                ORDER BY received_at DESC -- Order by received_at directly
                 LIMIT 1
             ''', (device_id,))
             latest_reading = cursor.fetchone()
 
             if latest_reading:
                 latest_power = round(float(latest_reading['power_watts']), 2)
-                latest_timestamp = latest_reading['timestamp_unix'] # Get the timestamp
+                # Use received_at_unix instead of timestamp_unix
+                latest_timestamp_unix = latest_reading['received_at_unix']
                 result[device_id] = {
                     'latest': latest_power,
-                    'timestamp_unix': latest_timestamp # Add timestamp to result
+                    # Rename key for clarity in API response
+                    'latest_timestamp_unix': latest_timestamp_unix
                 }
                 total_current_power += latest_power
             else:
-                 # If no reading found, indicate it clearly
                  result[device_id] = {
                      'latest': 0.0,
-                     'timestamp_unix': None # Indicate no timestamp
+                     'latest_timestamp_unix': None # Indicate no timestamp
                  }
 
         result['Total']['total_power'] = round(total_current_power, 2)
@@ -65,7 +65,8 @@ def get_latest_stats() -> Dict[str, Any]:
 # --- Statistics Functions ---
 
 def _get_time_range_timestamps(time_range_hours: int) -> Tuple[float, float]:
-    """Helper function to get start and end Unix timestamps."""
+    """Helper function to get start and end Unix timestamps for filtering."""
+    # This remains the same as it defines the window based on current time
     end_time = datetime.now(timezone.utc)
     start_time = end_time - timedelta(hours=time_range_hours)
     start_ts = start_time.timestamp()
@@ -73,18 +74,19 @@ def _get_time_range_timestamps(time_range_hours: int) -> Tuple[float, float]:
     return start_ts, end_ts
 
 def calculate_average_power(device_id: str, time_range_hours: int) -> Optional[float]:
-    """Calculates the average power consumption for a device over a time range."""
+    """Calculates the average power consumption based on received_at time range."""
     conn = get_db()
     cursor = conn.cursor()
     start_ts, end_ts = _get_time_range_timestamps(time_range_hours)
     average_power = None
 
     try:
+        # Filter using unixepoch(received_at)
         cursor.execute('''
             SELECT AVG(power_watts)
             FROM power_readings
             WHERE source_device_id = ?
-              AND timestamp_unix BETWEEN ? AND ?
+              AND unixepoch(received_at) BETWEEN ? AND ?
               AND power_watts IS NOT NULL
         ''', (device_id, start_ts, end_ts))
         result = cursor.fetchone()
@@ -98,33 +100,48 @@ def calculate_average_power(device_id: str, time_range_hours: int) -> Optional[f
     return average_power
 
 def find_peak_usage(device_id: str, time_range_hours: int) -> Optional[Dict[str, Any]]:
-    """Finds the highest power reading and its timestamp for a device over a time range."""
+    """Finds the highest power reading based on received_at time range."""
     conn = get_db()
     cursor = conn.cursor()
     start_ts, end_ts = _get_time_range_timestamps(time_range_hours)
     peak_data = None
 
     try:
+        # Filter using unixepoch(received_at), find MAX power, get corresponding received_at_unix
+        # Using a subquery or window function might be more robust for finding the exact timestamp
+        # of the max value if multiple entries have the same max power.
+        # Simpler approach: Find max power first, then find a timestamp for it.
         cursor.execute('''
-            SELECT timestamp_unix, MAX(power_watts)
+            SELECT MAX(power_watts)
             FROM power_readings
             WHERE source_device_id = ?
-              AND timestamp_unix BETWEEN ? AND ?
+              AND unixepoch(received_at) BETWEEN ? AND ?
               AND power_watts IS NOT NULL
         ''', (device_id, start_ts, end_ts))
-        result = cursor.fetchone()
-        # Check if result is not None and both values are not None
-        if result and result[0] is not None and result[1] is not None:
-            peak_ts_unix = result[0]
-            peak_power = round(float(result[1]), 2)
-            # Convert peak timestamp to ISO format string
-            dt_object = datetime.fromtimestamp(peak_ts_unix, tz=timezone.utc)
-            peak_ts_iso = dt_object.isoformat(timespec='milliseconds').replace('+00:00', 'Z')
-            peak_data = {
-                'timestamp_unix': peak_ts_unix,
-                'timestamp_iso': peak_ts_iso,
-                'power': peak_power
-            }
+        max_power_result = cursor.fetchone()
+
+        if max_power_result and max_power_result[0] is not None:
+            peak_power = round(float(max_power_result[0]), 2)
+            # Now find one timestamp where this peak occurred within the range
+            cursor.execute('''
+                SELECT unixepoch(received_at) as peak_timestamp_unix
+                FROM power_readings
+                WHERE source_device_id = ?
+                  AND unixepoch(received_at) BETWEEN ? AND ?
+                  AND power_watts = ?
+                ORDER BY received_at DESC -- Get the latest occurrence if multiple
+                LIMIT 1
+            ''', (device_id, start_ts, end_ts, peak_power))
+            peak_ts_result = cursor.fetchone()
+
+            if peak_ts_result and peak_ts_result['peak_timestamp_unix'] is not None:
+                 peak_ts_unix = peak_ts_result['peak_timestamp_unix']
+                 peak_data = {
+                     # Rename key for clarity in API response
+                     'timestamp_unix': peak_ts_unix,
+                     'power': peak_power
+                 }
+
     except sqlite3.Error as e:
         current_app.logger.error(f"DB error finding peak usage for {device_id}: {e}")
     except Exception as e:
@@ -134,8 +151,7 @@ def find_peak_usage(device_id: str, time_range_hours: int) -> Optional[Dict[str,
 
 def calculate_total_energy_kwh(device_id: str, time_range_hours: int) -> Optional[float]:
     """
-    Estimates the total energy consumed in kWh by integrating power over time.
-    This is an approximation assuming power readings are taken at regular intervals.
+    Estimates total energy consumed (kWh) by integrating power over received_at time.
     """
     conn = get_db()
     cursor = conn.cursor()
@@ -143,38 +159,40 @@ def calculate_total_energy_kwh(device_id: str, time_range_hours: int) -> Optiona
     total_kwh = None
 
     try:
-        # Fetch all relevant readings sorted by time
+        # Fetch unixepoch(received_at) and power_watts, ordered by received_at
         cursor.execute('''
-            SELECT timestamp_unix, power_watts
+            SELECT unixepoch(received_at) as ts_unix, power_watts
             FROM power_readings
             WHERE source_device_id = ?
-              AND timestamp_unix BETWEEN ? AND ?
-              AND timestamp_unix IS NOT NULL
+              AND unixepoch(received_at) BETWEEN ? AND ?
+              AND received_at IS NOT NULL
               AND power_watts IS NOT NULL
-            ORDER BY timestamp_unix ASC
+            ORDER BY received_at ASC -- Order by received_at directly
         ''', (device_id, start_ts, end_ts))
         readings = cursor.fetchall()
 
         if len(readings) < 2:
-            # Need at least two points to calculate energy over an interval
             return None
 
         total_watt_seconds = 0.0
-        # Integrate using the trapezoidal rule (approximating area under the power curve)
+        # Integrate using the trapezoidal rule with received_at timestamps (as Unix epoch)
         for i in range(len(readings) - 1):
-            t1 = readings[i]['timestamp_unix']
+            t1 = readings[i]['ts_unix']
             p1 = readings[i]['power_watts']
-            t2 = readings[i+1]['timestamp_unix']
+            t2 = readings[i+1]['ts_unix']
             p2 = readings[i+1]['power_watts']
 
-            time_diff_seconds = t2 - t1
-            avg_power_watts = (p1 + p2) / 2.0
-            # Add energy for this interval (Watt-seconds or Joules)
+            # Ensure timestamps are valid floats before calculation
+            if t1 is None or t2 is None: continue
+
+            time_diff_seconds = float(t2) - float(t1)
+            # Avoid division by zero or negative time diff if data is weird
+            if time_diff_seconds <= 0: continue
+
+            avg_power_watts = (float(p1) + float(p2)) / 2.0
             total_watt_seconds += avg_power_watts * time_diff_seconds
 
-        # Convert Watt-seconds to kilowatt-hours (1 kWh = 3,600,000 Ws)
         total_kwh = round(total_watt_seconds / 3_600_000.0, 3)
-        # Handle potential NaN if total_watt_seconds was NaN (unlikely here)
         if math.isnan(total_kwh):
              total_kwh = 0.0
 
@@ -188,44 +206,36 @@ def calculate_total_energy_kwh(device_id: str, time_range_hours: int) -> Optiona
 
 def get_historical_data(device_id: str, time_range_hours: int) -> List[Dict[str, Any]]:
     """
-    Fetches historical power readings for a specific device within a time range.
-    Returns a list of dictionaries, each containing 'timestamp' (ISO string) and 'power'.
+    Fetches historical power readings, using received_at (as Unix epoch) for time.
     """
     conn = get_db()
     cursor = conn.cursor()
     data: List[Dict[str, Any]] = []
-
-    # Use timezone-aware datetime objects for calculations
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(hours=time_range_hours)
-    start_ts = start_time.timestamp() # Convert to Unix timestamp (float)
-    end_ts = end_time.timestamp()     # Convert to Unix timestamp (float)
+    start_ts, end_ts = _get_time_range_timestamps(time_range_hours)
 
     try:
+        # Select unixepoch(received_at) and power_watts, filter by unixepoch(received_at)
         cursor.execute('''
-            SELECT timestamp_unix, power_watts
+            SELECT unixepoch(received_at) as received_at_unix, power_watts
             FROM power_readings
             WHERE source_device_id = ?
-              AND timestamp_unix BETWEEN ? AND ?
-              AND timestamp_unix IS NOT NULL  -- Ensure timestamp is not NULL
-              AND power_watts IS NOT NULL     -- Ensure power is not NULL
-            ORDER BY timestamp_unix ASC
+              AND unixepoch(received_at) BETWEEN ? AND ?
+              AND received_at IS NOT NULL
+              AND power_watts IS NOT NULL
+            ORDER BY received_at ASC -- Order by received_at directly
         ''', (device_id, start_ts, end_ts))
 
         for row in cursor.fetchall():
-            # Convert Unix timestamp back to timezone-aware datetime, then to ISO format
-            # Use UTC explicitly when creating datetime from timestamp
-            dt_object = datetime.fromtimestamp(row['timestamp_unix'], tz=timezone.utc)
-            # ISO 8601 format with 'Z' for UTC, suitable for JavaScript Date objects
-            timestamp_str = dt_object.isoformat(timespec='milliseconds').replace('+00:00', 'Z')
-            data.append({
-                'timestamp': timestamp_str,
-                'power': round(float(row['power_watts']), 2)
-            })
+            # Ensure timestamp is not None before adding
+            if row['received_at_unix'] is not None:
+                data.append({
+                    # Rename key for clarity in API response
+                    'timestamp': float(row['received_at_unix']),
+                    'power': round(float(row['power_watts']), 2)
+                })
 
     except sqlite3.Error as e:
         current_app.logger.error(f"Database error in get_historical_data for device {device_id}: {e}")
-        # Return empty list in case of database error
         data = []
     except Exception as e:
         current_app.logger.error(f"Unexpected error in get_historical_data for device {device_id}: {e}")
@@ -234,10 +244,8 @@ def get_historical_data(device_id: str, time_range_hours: int) -> List[Dict[str,
     return data
 
 def get_distinct_devices() -> List[str]:
-    """
-    Fetches a list of distinct source_device_ids from the database.
-    Returns a list of device ID strings.
-    """
+    """Fetches a list of distinct source_device_ids."""
+    # This function doesn't involve timestamps, so no change needed.
     conn = get_db()
     cursor = conn.cursor()
     devices: List[str] = []
@@ -246,7 +254,6 @@ def get_distinct_devices() -> List[str]:
         devices = [row['source_device_id'] for row in cursor.fetchall()]
     except sqlite3.Error as e:
         current_app.logger.error(f"Database error in get_distinct_devices: {e}")
-        # Return empty list on error
         devices = []
     except Exception as e:
         current_app.logger.error(f"Unexpected error in get_distinct_devices: {e}")

@@ -49,20 +49,19 @@ function displayStats(stats) {
         return;
     }
 
-    // Update title
     statsDeviceTitleEl.textContent = `Statistics for ${stats.device_id} (Last ${stats.time_range_hours} Hours)`;
-
-    // Update Average Power
     avgPowerEl.textContent = stats.average_power_watts !== null ? stats.average_power_watts.toFixed(2) : 'N/A';
 
-    // Update Peak Usage
-    if (stats.peak_usage) {
+    // Update Peak Usage using timestamp_unix
+    if (stats.peak_usage && stats.peak_usage.timestamp_unix !== null && stats.peak_usage.timestamp_unix !== undefined) {
         peakPowerEl.textContent = stats.peak_usage.power.toFixed(2);
-        // Format timestamp nicely
+        // Format Unix epoch timestamp nicely
         try {
-            const peakDate = new Date(stats.peak_usage.timestamp_iso);
+            // Convert Unix epoch seconds to milliseconds for Date constructor
+            const peakDate = new Date(stats.peak_usage.timestamp_unix * 1000);
             peakTimeEl.textContent = `at ${peakDate.toLocaleString()}`;
         } catch (e) {
+            console.error("Error formatting peak date:", e);
             peakTimeEl.textContent = 'at (invalid date)';
         }
     } else {
@@ -70,12 +69,10 @@ function displayStats(stats) {
         peakTimeEl.textContent = '';
     }
 
-    // Update Total Energy
     totalEnergyEl.textContent = stats.total_energy_kwh !== null ? stats.total_energy_kwh.toFixed(3) : 'N/A';
 
-    // Show the stats display area
     statsDisplay.classList.remove('d-none');
-    if (selectPromptMessage) selectPromptMessage.classList.add('d-none'); // Hide prompt
+    if (selectPromptMessage) selectPromptMessage.classList.add('d-none');
 }
 
 
@@ -137,7 +134,7 @@ async function fetchAndDisplayStats() {
     console.log("fetchAndDisplayStats function started");
     if (!deviceSelect || !timeRangeSelect) {
          console.error("Dropdown elements not found.");
-         return; // Should have been caught earlier, but good practice
+         return;
     }
     const selectedDevice = deviceSelect.value;
     const selectedHours = timeRangeSelect.value;
@@ -145,7 +142,7 @@ async function fetchAndDisplayStats() {
 
     if (!selectedDevice) {
         console.log("fetchAndDisplayStats: No device selected.");
-        showSelectPrompt(); // Show prompt if no device selected
+        showSelectPrompt();
         return;
     }
 
@@ -166,10 +163,9 @@ async function fetchAndDisplayStats() {
             throw new Error(errorMsg);
         }
 
-        const statsData = await response.json();
+        const statsData = await response.json(); // API now returns peak_usage: {timestamp_unix: ..., power: ...}
         console.log("fetchAndDisplayStats: Received stats:", statsData);
 
-        // Check if essential stats are null, indicating no data found for the period
         if (statsData.average_power_watts === null && statsData.peak_usage === null && statsData.total_energy_kwh === null) {
              showError("No data found for the selected device and time range to calculate statistics.");
         } else {

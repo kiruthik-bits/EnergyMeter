@@ -56,7 +56,7 @@ function updatePlotlyChart(plotData, deviceId) {
     plotlyChartDiv.style.display = 'block';
 
     const trace = {
-        x: plotData.x,
+        x: plotData.x, // Expecting JS Date objects or ISO strings
         y: plotData.y,
         mode: 'lines+markers',
         type: 'scatter',
@@ -133,7 +133,6 @@ async function fetchAndUpdateChart() {
     const selectedDevice = deviceSelect.value;
     const selectedHours = timeRangeSelect.value;
 
-    // Check if a valid device is selected (not the placeholder)
     if (!selectedDevice || deviceSelect.selectedIndex === 0) {
         plotlyChartDiv.style.display = 'none';
         noDataMessage.textContent = "Please select a device.";
@@ -159,7 +158,7 @@ async function fetchAndUpdateChart() {
             throw new Error(errorMsg);
         }
 
-        const data = await response.json();
+        const data = await response.json(); // API now returns [{timestamp: unix_epoch_float, power: ...}, ...]
 
         if (!Array.isArray(data)) {
             throw new Error("Received invalid data format from server.");
@@ -170,22 +169,26 @@ async function fetchAndUpdateChart() {
             return;
         }
 
-        // Prepare data
+        // Prepare data for Plotly
         const plotData = { x: [], y: [] };
         data.forEach(item => {
-            plotData.x.push(item.timestamp);
-            plotData.y.push(item.power);
+            // Convert Unix epoch seconds to JavaScript Date object (needs milliseconds)
+            if (item.timestamp !== null && item.timestamp !== undefined) {
+                 plotData.x.push(new Date(item.timestamp * 1000));
+                 plotData.y.push(item.power);
+            }
         });
 
         updatePlotlyChart(plotData, selectedDevice);
 
     } catch (error) {
-        console.error('Error fetching or processing historical data:', error); // Keep essential error log
+        console.error('Error fetching or processing historical data:', error);
         showError(`Error loading chart data: ${error.message}`);
     } finally {
         hideLoading();
     }
 }
+
 
 
 // --- Event Listeners & Initial Load ---
