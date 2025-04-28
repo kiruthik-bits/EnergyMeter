@@ -1,20 +1,24 @@
 /* /home/kiruthik/Documents/Mtech/SEM1/SES/Assignment1/EnergyMeter/RPI/WebServer/static/css/style.css */
 
-/* Example: Custom override for card header */
-/* .card-header {
-    font-weight: bold;
+/* Ensure cards maintain height even if content is short */
+/* .card.h-100 {
+    display: flex;
+    flex-direction: column;
 } */
+/* Bootstrap's h-100 and d-flex should handle this, but uncomment if needed */
 
-/* Add any specific custom styles here that Bootstrap doesn't cover */
+/* Add transition for opacity change on inactive cards */
+.card {
+    transition: opacity 0.3s ease-in-out;
+}
+
+/* Style for the active devices count display */
+#active-devices-value {
+    /* font-weight: bold; */ /* Already bold via display-5 */
+}
+
+/* Minor adjustments if needed */
 body {
-    /* Example: Slightly different background if needed */
-    /* background-color: #e9ecef; */
+    /* background-color: #f8f9fa; */ /* Default light background */
 }
-
-#chart-container canvas {
-    /* Ensure canvas doesn't cause overflow issues initially */
-    max-width: 100%;
-}
-
-/* You might not need much here anymore */
 
